@@ -198,16 +198,6 @@ func (w *workload) drawStoreName(tc hegel.TestCase) string {
 	return hegel.Draw(tc, hegel.SampledFrom(storeSnapNames))
 }
 
-func (w *workload) snapshotMax(names []string, risk func(string) string) map[string]int {
-	m := map[string]int{}
-	for _, n := range names {
-		if r := risk(n); r != "" {
-			m[n] = w.store.latest(n, r)
-		}
-	}
-	return m
-}
-
 // RulePublish publishes a new revision of a store snap to some channels.
 func (w *workload) RulePublish(tc hegel.TestCase) {
 	if !hegel.Draw(tc, hegel.WeightedBooleans(0.25)) {
@@ -258,7 +248,9 @@ func (w *workload) RuleRefresh(tc hegel.TestCase) {
 		o.risk = hegel.Draw(tc, hegel.SampledFrom(risks))
 		opts.Channel = o.risk
 	}
-	o.maxAt = w.snapshotMax(o.names, func(n string) string { return o.effectiveRisk(t, n) })
+	if o.risk != "" {
+		o.maxAt = map[string]int{name: w.store.latest(name, o.risk)}
+	}
 	w.submit(o, func() (string, error) { return t.cli.Refresh(name, nil, opts) })
 }
 
@@ -266,7 +258,6 @@ func (w *workload) RuleRefresh(tc hegel.TestCase) {
 func (w *workload) RuleRefreshAll(tc hegel.TestCase) {
 	t := w.drawTarget(tc)
 	o := &op{kind: opRefreshAll, t: t, names: append([]string(nil), storeSnapNames...)}
-	o.maxAt = w.snapshotMax(o.names, func(n string) string { return o.effectiveRisk(t, n) })
 	w.submit(o, func() (string, error) { return t.cli.RefreshMany(nil, nil, &client.SnapOptions{}) })
 }
 
@@ -309,18 +300,6 @@ func (t *target) drawStoreNameWhere(tc hegel.TestCase, fits func(snapState) bool
 		return hegel.Draw(tc, hegel.SampledFrom(storeSnapNames))
 	}
 	return hegel.Draw(tc, hegel.SampledFrom(ok))
-}
-
-// effectiveRisk is the channel a refresh of name will use: the requested one,
-// or the one the model says it tracks.
-func (o *op) effectiveRisk(t *target, name string) string {
-	if o.risk != "" {
-		return o.risk
-	}
-	m := t.snaps[name]
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return strings.TrimPrefix(m.state.Tracking, "latest/")
 }
 
 // judgeStore judges completed store ops; it returns false for other ops.

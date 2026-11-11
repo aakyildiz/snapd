@@ -370,6 +370,14 @@ func (w *workload) submit(o *op, send func() (string, error)) {
 		overlap[name] = m.pending > 0
 		o.judgeable[name] = m.known && !m.tainted && m.pending == 0
 		o.before[name] = m.state
+		if (o.kind == opRefresh || o.kind == opRefreshAll) && o.risk == "" && w.store != nil {
+			// The channel the refresh follows is the one tracked right now,
+			// in the same snapshot that judging compares against.
+			if o.maxAt == nil {
+				o.maxAt = map[string]int{}
+			}
+			o.maxAt[name] = w.store.latest(name, strings.TrimPrefix(m.state.Tracking, "latest/"))
+		}
 		m.pending++
 		m.mu.Unlock()
 	}
