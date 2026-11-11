@@ -2,6 +2,8 @@
 services:
   snapd1:
     build: {context: ../../.., dockerfile: antithesis/snapd-incus/host/Dockerfile}
+  store:
+    build: {context: ../../.., dockerfile: antithesis/snapd-incus/store/Dockerfile}
   driver:
     build: {context: ../../.., dockerfile: antithesis/snapd-incus/driver/Dockerfile}
     environment:

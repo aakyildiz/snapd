@@ -15,7 +15,8 @@ var snapSeq atomic.Int64
 // snapSpec describes a test snap to build. Every value comes from hegel.
 type snapSpec struct {
 	Name    string
-	Files   []int // sizes in bytes
+	Version string // default: a unique "1.<n>"
+	Files   []int  // sizes in bytes
 	Seed    uint64
 	Plug    bool // declares a "network" plug, so auto-connect has work to do
 	Corrupt bool // truncate the squashfs image, so a later task fails and undoes
@@ -33,7 +34,11 @@ func (s snapSpec) build() (string, error) {
 		return "", err
 	}
 	var y strings.Builder
-	fmt.Fprintf(&y, "name: %s\nversion: \"1.%d\"\nbase: none\nsummary: test snap\ndescription: test snap\n", s.Name, seq)
+	version := s.Version
+	if version == "" {
+		version = fmt.Sprintf("1.%d", seq)
+	}
+	fmt.Fprintf(&y, "name: %s\nversion: %q\nbase: none\nsummary: test snap\ndescription: test snap\n", s.Name, version)
 	if s.Plug {
 		y.WriteString("plugs:\n  network:\n")
 	}

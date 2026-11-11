@@ -47,7 +47,7 @@ RUN systemctl mask systemd-networkd.service systemd-resolved.service systemd-tim
 # Stage 3: the Incus host. Its main process is incusd, under start.sh.
 FROM debian:trixie-slim
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      incus-base incus-client ca-certificates curl jq procps iproute2 xz-utils less \
+      incus-base incus-client ca-certificates curl jq procps iproute2 xz-utils less socat \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=rootfs / /opt/rootfs/
 COPY antithesis/snapd-incus/host/image-metadata.yaml /opt/image/metadata.yaml

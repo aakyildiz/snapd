@@ -42,6 +42,15 @@ func main() {
 	for _, t := range targets {
 		t.waitUp()
 	}
+	store := newStoreModel(envOr("STORE_DIR", "/srv/store"))
+	for {
+		err := store.setup()
+		if err == nil {
+			break
+		}
+		log.Printf("setup: store: %v", err)
+		time.Sleep(time.Second)
+	}
 	for _, t := range targets {
 		t.adminSetup()
 	}
@@ -52,6 +61,7 @@ func main() {
 	assert.Reachable("the workload starts", nil)
 
 	w := newWorkload(targets)
+	w.store = store
 	if s := os.Getenv("EVENTUALLY_AFTER_SECONDS"); s != "" {
 		n, _ := strconv.Atoi(s)
 		go func() {

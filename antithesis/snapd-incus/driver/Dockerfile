@@ -9,7 +9,7 @@ COPY . .
 RUN ./mkversion.sh "$(cat antithesis/snapd-incus/host/VERSION)"
 RUN cd antithesis/snapd-incus/driver && CGO_ENABLED=1 \
     ANTITHESIS_INSTRUMENT=snapd-incus/driver \
-    go build -toolexec=antithesis-go-toolexec -o /out/driver .
+    go build -tags withtestkeys -toolexec=antithesis-go-toolexec -o /out/driver .
 
 FROM debian:trixie-slim
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -19,4 +19,7 @@ COPY --from=build /out/driver /usr/local/bin/driver
 COPY --from=build /symbols /symbols
 COPY antithesis/snapd-incus/driver/first_start_workload /opt/antithesis/test/v1/main/first_start_workload
 RUN chmod 755 /opt/antithesis/test/v1/main/first_start_workload
+# The driver signs store assertions with snapd's test keys, whose package
+# generates a small RSA key at init (refused by Go>=1.24 without this).
+ENV GODEBUG=rsa1024min=0
 CMD ["/usr/local/bin/driver"]

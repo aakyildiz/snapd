@@ -29,6 +29,14 @@ const (
 	opEnable  opKind = "enable"
 	opDisable opKind = "disable"
 	opSetConf opKind = "set-conf"
+
+	// store ops (store.go)
+	opStoreInstall opKind = "store-install"
+	opRefresh      opKind = "refresh"
+	opRefreshAll   opKind = "refresh-all"
+	opSwitch       opKind = "switch"
+	opHold         opKind = "hold"
+	opUnhold       opKind = "unhold"
 )
 
 // op is one request that may start a change.
@@ -41,6 +49,8 @@ type op struct {
 	key    string                 // set-conf only
 	val    string                 // set-conf only
 	broken map[string]bool        // install only: snaps whose image is corrupt
+	risk   string                 // store-install, refresh, switch: the channel's risk ("" = keep tracking)
+	maxAt  map[string]int         // store ops: per snap, the channel's latest revision at submit
 
 	// per snap, filled at submit time
 	judgeable map[string]bool
@@ -62,6 +72,8 @@ func (o *op) String() string {
 		if o.rev != "" {
 			s += " rev=" + o.rev
 		}
+	case opStoreInstall, opRefresh, opSwitch:
+		s += fmt.Sprintf(" risk=%q maxAt=%v", o.risk, o.maxAt)
 	case opSetConf:
 		s += fmt.Sprintf(" %s=%s", o.key, o.val)
 	}
@@ -74,6 +86,7 @@ func (o *op) String() string {
 // workload is the hegel state machine.
 type workload struct {
 	targets []*target
+	store   *storeModel
 
 	inflightMu sync.Mutex
 	inflight   map[*op]struct{}
@@ -118,14 +131,14 @@ func (w *workload) drawTarget(tc hegel.TestCase) *target {
 }
 
 func drawName(tc hegel.TestCase) string {
-	return hegel.Draw(tc, hegel.SampledFrom(snapNames))
+	return hegel.Draw(tc, hegel.SampledFrom(allSnapNames))
 }
 
 // drawNameWhere usually picks a snap the model says fits, so actions that
 // need a particular state (two revisions, disabled) get to run.
 func (t *target) drawNameWhere(tc hegel.TestCase, fits func(snapState) bool) string {
 	var ok []string
-	for _, n := range snapNames {
+	for _, n := range allSnapNames {
 		m := t.snaps[n]
 		m.mu.Lock()
 		if fits(m.state) {
@@ -598,6 +611,9 @@ func (w *workload) judge(o *op, name string, chg *client.Change, before, after s
 		assert.Always(ok, "a change that does not complete leaves its snaps as they were", d)
 		return
 	}
+	if w.judgeStore(o, name, before, after, d) {
+		return
+	}
 	switch o.kind {
 	case opInstall:
 		ok := after.Installed && after.Active && !before.hasRev(after.Current) &&
@@ -775,7 +791,7 @@ func (w *workload) checkTarget(t *target, final bool) bool {
 		return false
 	}
 	states := map[string]snapState{}
-	names := append([]string{"snapd"}, snapNames...)
+	names := append([]string{"snapd"}, allSnapNames...)
 	for _, name := range names {
 		st, err := t.readState(name)
 		if err != nil {
@@ -793,7 +809,7 @@ func (w *workload) checkTarget(t *target, final bool) bool {
 	}
 	w.count("check")
 
-	for _, name := range snapNames {
+	for _, name := range allSnapNames {
 		m := t.snaps[name]
 		m.mu.Lock()
 		if m.known && !m.tainted {
@@ -859,7 +875,13 @@ func (w *workload) checkTarget(t *target, final bool) bool {
 		}
 	}
 	for k := range fs.data {
-		if !want[k] {
+		// A refresh trashes the previous data as <rev>.old; the change's
+		// cleanup removes it after the change is ready, so only count it once
+		// everything has settled.
+		if strings.HasSuffix(k, ".old") && !final {
+			continue
+		}
+		if !want[k] && !(strings.HasSuffix(k, ".old") && want[strings.TrimSuffix(k, ".old")] && !final) {
 			problems = append(problems, "leaked data dir /var/snap/"+strings.Replace(k, " ", "/", 1))
 		}
 	}

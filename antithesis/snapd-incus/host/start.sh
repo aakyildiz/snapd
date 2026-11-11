@@ -70,6 +70,10 @@ if ! incus config show "$NAME" >/dev/null 2>&1; then
   fi
   incus config device add "$NAME" api proxy listen=tcp:0.0.0.0:7000 \
       connect=unix:/run/snapd.socket bind=host >/dev/null
+  # The fake store: snapd talks to 127.0.0.1:11028 in the container; the
+  # proxy forwards to socat on the host, which resolves "store" per connection.
+  incus config device add "$NAME" store proxy listen=tcp:127.0.0.1:11028 \
+      connect=tcp:127.0.0.1:11029 bind=instance >/dev/null
   incus config device add "$NAME" logs disk source=/var/log/antithesis path=/var/log/antithesis >/dev/null
   if [ -f /usr/lib/libvoidstar.so ]; then
     # Antithesis' runtime library, and the files it talks to the platform
@@ -95,6 +99,7 @@ if [ -f /usr/lib/libvoidstar.so ]; then
   printf '/usr/lib/libvoidstar.so\n' > /tmp/ld.so.preload
   incus file push /tmp/ld.so.preload "$NAME"/etc/ld.so.preload
 fi
+socat TCP-LISTEN:11029,bind=127.0.0.1,fork,reuseaddr TCP:store:11028 2>/dev/null &
 log "starting container"
 for i in 1 2 3 4 5 6; do
   st=$(incus list "$NAME" -c s -f csv 2>/dev/null)

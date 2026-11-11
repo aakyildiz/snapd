@@ -19,6 +19,9 @@ import (
 // pool makes operations on the same snap overlap often.
 var snapNames = []string{"tst-a", "tst-b", "tst-c"}
 
+// allSnapNames: the sideloaded snaps and the store snaps (store.go).
+var allSnapNames = append(append([]string(nil), snapNames...), storeSnapNames...)
+
 // target is one snapd instance and the driver's model of it.
 type target struct {
 	idx   int
@@ -50,11 +53,16 @@ type snapState struct {
 	Current   string
 	Active    bool
 	Revs      []string // sorted
+	Tracking  string   // tracked channel; empty for sideloaded snaps
+	Held      bool     // general refreshes held by the user
 }
 
 func (s snapState) String() string {
 	if !s.Installed {
 		return "absent"
+	}
+	if s.Tracking != "" {
+		return fmt.Sprintf("cur=%s active=%v revs=%v tracking=%s held=%v", s.Current, s.Active, s.Revs, s.Tracking, s.Held)
 	}
 	return fmt.Sprintf("cur=%s active=%v revs=%v", s.Current, s.Active, s.Revs)
 }
@@ -66,7 +74,8 @@ func (s snapState) equal(o snapState) bool {
 	if !s.Installed {
 		return true
 	}
-	return s.Current == o.Current && s.Active == o.Active && strings.Join(s.Revs, ",") == strings.Join(o.Revs, ",")
+	return s.Current == o.Current && s.Active == o.Active && s.Tracking == o.Tracking && s.Held == o.Held &&
+		strings.Join(s.Revs, ",") == strings.Join(o.Revs, ",")
 }
 
 func (s snapState) hasRev(r string) bool {
@@ -101,7 +110,7 @@ func newTarget(idx int, host string) *target {
 	t.cli = client.New(&client.Config{BaseURL: fmt.Sprintf("http://%s:7000", host), DisableAuth: true})
 	hc := &http.Client{Timeout: 20 * time.Second}
 	t.cli.Hijack(hc.Do)
-	for _, n := range snapNames {
+	for _, n := range allSnapNames {
 		t.snaps[n] = &snapModel{}
 	}
 	return t
@@ -175,6 +184,17 @@ func (t *target) adminSetup() {
 			time.Sleep(time.Second)
 		}
 	}
+	// Auto-refresh would change store snaps behind the driver's back.
+	for {
+		id, err := t.cli.SetConf("system", map[string]any{"refresh.hold": "forever"})
+		if err == nil {
+			if _, err = t.waitChange(id, 2*time.Minute); err == nil {
+				break
+			}
+		}
+		report(fmt.Sprintf("hold auto-refresh: %v", err))
+		time.Sleep(time.Second)
+	}
 	t.logf("setup done")
 }
 
@@ -208,6 +228,8 @@ func (t *target) readState(name string) (snapState, error) {
 	}
 	st.Installed = true
 	st.Current = s.Revision.String()
+	st.Tracking = s.TrackingChannel
+	st.Held = s.Hold != nil && s.Hold.After(time.Now())
 	st.Active = s.Status == client.StatusActive
 	all, err := t.cli.List([]string{name}, &client.ListOptions{All: true})
 	if err != nil {
