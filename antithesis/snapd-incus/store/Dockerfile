@@ -21,4 +21,5 @@ RUN mkdir -p /srv/store/asserts /srv/store/channels
 # snapd's test-key package generates a small RSA key at init, which Go>=1.24
 # refuses unless this is set.
 ENV SNAPPY_TESTING=1 SNAPD_DEBUG=1 GODEBUG=rsa1024min=0
-CMD ["/usr/local/bin/fakestore", "run", "--dir", "/srv/store", "--addr", "0.0.0.0:11028"]
+COPY antithesis/snapd-incus/store/run-store.sh /usr/local/bin/run-store.sh
+CMD ["/usr/local/bin/run-store.sh"]
