@@ -588,6 +588,13 @@ func (w *workload) judge(o *op, name string, chg *client.Change, before, after s
 			// Each snap is its own transaction: this one may have made it.
 			ok = ok || (after.Installed && after.Active && !before.hasRev(after.Current))
 		}
+		if !ok && refusedRelink(chg, name) && !irreversible {
+			// Known finding: undoUnlinkSnap won't relink a snap if its data
+			// dirs are missing, taking that as "this change's clear-snap ran",
+			// although an earlier change may have removed them.
+			assert.Unreachable("an undone change relinks a snap whose data it did not remove", d)
+			return
+		}
 		assert.Always(ok, "a change that does not complete leaves its snaps as they were", d)
 		return
 	}
@@ -652,6 +659,18 @@ func expectAfterIrreversible(before snapState, name string, chg *client.Change) 
 		}
 	}
 	return want, irreversible
+}
+
+// refusedRelink: some task of chg logged that it would not link name back.
+func refusedRelink(chg *client.Change, name string) bool {
+	for _, task := range chg.Tasks {
+		for _, l := range task.Log {
+			if strings.Contains(l, fmt.Sprintf("cannot link snap %q back", name)) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ---- consistency ----
