@@ -33,13 +33,15 @@ driver ──HTTP──▶ snapd1 (Docker, privileged: incusd)
 
 ### Properties
 - `a change that does not complete leaves its snaps as they were`: atomicity,
-  including abort and crash.
+  including abort and crash, allowing for the effects of tasks snapd never
+  undoes (`clear-snap`, `discard-snap`) when they ran.
 - `a completed install / remove / revision remove / revert / enable or disable …`:
   each completed change has its effect.
 - `a snap only changes through changes that complete`: snapd's state matches
   the driver's model at quiescent points.
-- `with no change in progress, the filesystem matches snapd's state`: blobs,
-  mounts, mount units, `current` symlinks and data dirs, with no leaks.
+- `with no change in progress, every revision snapd has is mounted and linked`
+  and `... nothing is left behind for revisions snapd does not have`: blobs,
+  mounts, mount units (loaded and on disk), `current` symlinks and data dirs.
 - `an accepted change is never lost`.
 - `snapd never answers a request with an internal server error`.
 - Eventually (faults stop): snapd answers, `every change finishes once faults stop`, and the checks above hold.
