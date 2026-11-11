@@ -9,8 +9,8 @@
 ## Budget
 - 200 compute hours. Runs 1-5 failed in setup (about 1.5 CH total): Antithesis' seccomp profile (fixed with seccomp=unconfined), tar/fchmodat2 (fixed: rootfs bind-mounted), Antithesis runtime not visible in the nested container (fixed: recursive bind of /opt/antithesis).
 - Run 6 300a4922d4faac0952ca9b16d7683742-67-0 (12 CH, cancelled at 13 min): first run with the workload running. Triaged; see findings 3 and workload fixes below.
-- Run 7 109329e247610f368f67a2c132fd978e-67-0 (24 CH): running.
-- Estimated spend so far: ~25 CH (setup-timeout runs ~4 CH each; run 6 counted at its 12 CH cap).
+- Run 7 109329e247610f368f67a2c132fd978e-67-0 (24 CH): **completed; workload checks pass.** Instrumentation, symbols, thread pausing and setup under 10 minutes all pass. The workload starts, every exploration assertion is reached, the end-of-test checks pass, and there are no unexpected container exits. Every failing property maps to findings 1-9.
+- Estimated spend: ~49 of 200 CH (runs 3-5 at ~4 CH each, run 6 at its 12 CH cap, run 7 at its 24 CH cap; Antithesis had only reported 0.3 CH so far).
 
 ## Findings so far (both confirmed on Antithesis in run 6)
 1. **An aborted change reports `Done` when nothing was done.** If you abort a sideload install before its first undoable task runs, the change ends `Done` with no error, and the snap is not installed. Cause: abort sets pending tasks to `Hold`, and tasks with no undo handler (`prerequisites`) go back to `Done` (`overlord/state/taskrunner.go:447`). `Change.Status()` ranks `Done` above `Hold` (`overlord/state/change.go:288`).
@@ -30,6 +30,8 @@
    3. Only after that does it mark the task Done (line ~965).
 
    A container kill between steps 2 and 3 makes the task re-run after the restart. `checkSnap` then fails on the missing upload (line ~852), before any cleanup is set up, and the task ends in Error, which the task runner never undoes. The blob, unit file and squashfuse mount stay behind for a snap that snapd's state doesn't have. Side observation: about 20 `.local-install-*` upload files from failed sideloads are left behind in `/var/lib/snapd/snaps`.
+
+9. *(Observation, root cause not confirmed.)* **squashfuse segfaulted (signal 11)** while serving `/snap/tst-b/x1` (run 7, input_hash -4230057828283874973, vtime 539.97). That mount had been leaked by finding 8: snapd had forgotten `tst-b`. A new install of `tst-b` then started, and snapd numbers it x1 again because the revision is no longer in its state. That install collides with the leaked `tst-b_x1.snap` (`CopyFile` uses O_EXCL, so it can't overwrite it). The likely trigger is its cleanup unmounting x1 while squashfuse was serving it. The crash is in squashfuse, not snapd, but it is reached through snapd reusing a revision number it had forgotten.
 
 ## Workload fixes from run 6 triage
 - Host container: after a kill, incusd auto-started the instance before the rootfs bind mount was back, and the instance got stuck. Fixed: mount before incusd starts, `boot.autostart=false`, check existence by config, and retry the start.

@@ -46,11 +46,25 @@ driver ──HTTP──▶ snapd1 (Docker, privileged: incusd)
 - Exploration assertions in snapd: undo handlers, aborted tasks, and startup
   with changes in flight (`overlord/…`).
 
-### Known findings (kept as their own properties)
-- `an aborted change that reports Done has taken effect`: abort before any
-  undoable task runs makes the change report Done although nothing was applied.
-- `snapd rejects an update of a disabled snap as a client error`: snapd
-  answers 500.
+### Findings
+See `STATUS.md` for the nine findings with moments, code references and
+suggested fixes. Findings 1, 2 and 5 have their own properties
+(`an aborted change that reports Done has taken effect`,
+`snapd rejects an update of a disabled snap as a client error`,
+`an undone change relinks a snap whose data it did not remove`). Findings 3
+and 6-8 show up in the two filesystem properties. Finding 9 shows up in
+Antithesis' default `No unexpected crashes: squashfuse`.
+
+### Antithesis environment notes
+- Antithesis applies a Docker-style default seccomp profile even to privileged
+  containers (no `pivot_root`; `fchmodat2` refused with EPERM). The host
+  service sets `security_opt: [seccomp=unconfined]`, and the rootfs is
+  bind-mounted rather than unpacked at runtime.
+- `/opt/antithesis` must be bind-mounted into the Incus container
+  *recursively* (`recursive=true`): `shared_memory` is a separate mount, and
+  without it the SDK in snapd crashes with SIGBUS.
+- `start.sh` re-mounts the rootfs before incusd starts and disables Incus
+  autostart, so the host recovers from Antithesis killing the container.
 
 ### Run it
 - Local loop: `snapd-incus/scripts/local-run.sh <seconds> <out-dir> [eventually-after-seconds]`
