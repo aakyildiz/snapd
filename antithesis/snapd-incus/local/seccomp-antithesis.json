@@ -1,0 +1,1 @@
+{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[{"names":["fchmodat2"],"action":"SCMP_ACT_ERRNO","errnoRet":1}]}

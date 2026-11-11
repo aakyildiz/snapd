@@ -20,6 +20,7 @@
 package state
 
 import (
+	"github.com/antithesishq/antithesis-sdk-go/assert"
 	"sync"
 	"time"
 
@@ -285,6 +286,7 @@ func (r *TaskRunner) run(t *Task) {
 				next = t.HaltTasks()
 			case AbortStatus:
 				// It was actually Done if it got here.
+				assert.Reachable("a task finishes its do handler after being aborted", map[string]any{"kind": t.Kind()})
 				t.SetStatus(UndoStatus)
 				r.state.EnsureBefore(0)
 			case UndoingStatus:
@@ -448,6 +450,7 @@ ConsiderTasks:
 			// Although this has no dependencies itself, it must have waited
 			// above too since follow up tasks may have handlers again.
 			// Cannot undo. Revert to done status.
+			assert.Reachable("an aborted task with no undo handler reverts to done", map[string]any{"kind": t.Kind()})
 			t.SetStatus(DoneStatus)
 			if len(t.WaitTasks()) > 0 {
 				r.state.EnsureBefore(0)

@@ -24,6 +24,7 @@ package overlord
 import (
 	"errors"
 	"fmt"
+	"github.com/antithesishq/antithesis-sdk-go/assert"
 	"net/http"
 	"net/url"
 	"os"
@@ -357,7 +358,16 @@ func (o *Overlord) loadState(backend state.Backend, restartHandler restart.Handl
 	}
 	s.Lock()
 	perfTimings.Save(s)
+	// Antithesis: snapd restarted (crash, kill, reboot) with snap changes
+	// still in flight, so their tasks must resume or undo.
+	inFlight := 0
+	for _, chg := range s.Changes() {
+		if !chg.IsReady() && chg.Kind() != "become-operational" {
+			inFlight++
+		}
+	}
 	s.Unlock()
+	assert.Sometimes(inFlight > 0, "snapd starts with a snap change in progress", map[string]any{"changes": inFlight})
 
 	restartMgr, err := initRestart(s, curBootID, restartHandler)
 	if err != nil {

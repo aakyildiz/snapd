@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/antithesishq/antithesis-sdk-go/assert"
 	"os"
 	"path/filepath"
 	"sort"
@@ -239,6 +240,7 @@ func (m *SnapManager) doPrepareSnap(t *state.Task, _ *tomb.Tomb) error {
 }
 
 func (m *SnapManager) undoPrepareSnap(t *state.Task, _ *tomb.Tomb) error {
+	assert.Reachable("snapd undoes prepare-snap", nil)
 	// TODO: add some telemetry here that reports the snaps that were being set
 	// up
 	return nil
@@ -966,6 +968,7 @@ func (m *SnapManager) doMountSnap(t *state.Task, _ *tomb.Tomb) error {
 }
 
 func (m *SnapManager) undoMountSnap(t *state.Task, _ *tomb.Tomb) error {
+	assert.Reachable("snapd undoes mount-snap", nil)
 	st := t.State()
 	st.Lock()
 	snapsup, err := TaskSnapSetup(t)
@@ -1276,6 +1279,7 @@ func (m *SnapManager) doUnlinkCurrentSnap(t *state.Task, _ *tomb.Tomb) (retErr e
 }
 
 func (m *SnapManager) undoUnlinkCurrentSnap(t *state.Task, _ *tomb.Tomb) error {
+	assert.Reachable("snapd undoes unlink-current-snap", nil)
 	st := t.State()
 	st.Lock()
 	defer st.Unlock()
@@ -1530,6 +1534,7 @@ func triggeredMigration(oldBase, newBase string, opts *dirMigrationOptions) migr
 }
 
 func (m *SnapManager) undoCopySnapData(t *state.Task, _ *tomb.Tomb) error {
+	assert.Reachable("snapd undoes copy-snap-data", nil)
 	st := t.State()
 	st.Lock()
 	snapsup, snapst, err := snapSetupAndState(t)
@@ -2495,6 +2500,7 @@ func (m *SnapManager) maybeUndoRemodelBootChanges(t *state.Task) (*restartPossib
 }
 
 func (m *SnapManager) undoLinkSnap(t *state.Task, _ *tomb.Tomb) error {
+	assert.Reachable("snapd undoes link-snap", nil)
 	st := t.State()
 	st.Lock()
 	defer st.Unlock()
@@ -3412,6 +3418,7 @@ func (m *SnapManager) doUnlinkSnap(t *state.Task, _ *tomb.Tomb) (retErr error) {
 }
 
 func (m *SnapManager) undoUnlinkSnap(t *state.Task, _ *tomb.Tomb) error {
+	assert.Reachable("snapd undoes unlink-snap", nil)
 	st := t.State()
 	st.Lock()
 	defer st.Unlock()

@@ -1,0 +1,6 @@
+architecture: x86_64
+creation_date: 1767225600
+properties:
+  description: Ubuntu 24.04 with instrumented snapd (Antithesis workload)
+  os: ubuntu
+  release: noble

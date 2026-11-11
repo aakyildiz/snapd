@@ -1,0 +1,4 @@
+.git
+antithesis/snapd-incus/config
+antithesis/**/coverage
+antithesis/**/out

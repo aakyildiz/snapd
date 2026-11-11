@@ -1,0 +1,19 @@
+services:
+  snapd1:
+    container_name: snapd1
+    hostname: snapd1
+    platform: linux/amd64
+    image: snapd-incus-host:latest
+    privileged: true
+    cgroup: private
+    # Incus/LXC need pivot_root, which Antithesis' default seccomp profile
+    # blocks even for privileged containers.
+    security_opt: ["seccomp=unconfined"]
+  driver:
+    container_name: driver
+    hostname: driver
+    platform: linux/amd64
+    image: snapd-incus-driver:latest
+    environment:
+      HOSTS: snapd1
+    depends_on: [snapd1]

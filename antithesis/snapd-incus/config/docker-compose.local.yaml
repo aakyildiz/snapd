@@ -1,0 +1,10 @@
+# Local-loop overrides: build images, collect SDK output, no eventually.
+services:
+  snapd1:
+    build: {context: ../../.., dockerfile: antithesis/snapd-incus/host/Dockerfile}
+  driver:
+    build: {context: ../../.., dockerfile: antithesis/snapd-incus/driver/Dockerfile}
+    environment:
+      ANTITHESIS_SDK_LOCAL_OUTPUT: /tmp/sdk.jsonl
+      NO_EVENTUALLY: ${NO_EVENTUALLY-1}
+      EVENTUALLY_AFTER_SECONDS: ${EVENTUALLY_AFTER_SECONDS:-}
