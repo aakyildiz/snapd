@@ -33,6 +33,13 @@
 
 9. *(Observation, root cause not confirmed.)* **squashfuse segfaulted (signal 11)** while serving `/snap/tst-b/x1` (run 7, input_hash -4230057828283874973, vtime 539.97). That mount had been leaked by finding 8: snapd had forgotten `tst-b`. A new install of `tst-b` then started, and snapd numbers it x1 again because the revision is no longer in its state. That install collides with the leaked `tst-b_x1.snap` (`CopyFile` uses O_EXCL, so it can't overwrite it). The likely trigger is its cleanup unmounting x1 while squashfuse was serving it. The crash is in squashfuse, not snapd, but it is reached through snapd reusing a revision number it had forgotten.
 
+10. **After a restart, snapd recreates the mount unit of a revision it is in the middle of removing, and leaks it** (run 8, input_hash -5980358961198242735, vtime 24.11). `ensureMountsUpdatedAfterSeed` (`overlord/snapstate/snapmgr.go:1516`) writes a mount unit for every revision in state. It doesn't check whether a remove is in progress or whether the blob still exists. It retries on every Ensure until it succeeds, because `ensuredMountsUpdated` is only set when it doesn't fail. The sequence:
+    1. snapd was killed inside `discard-snap` for `st-b` revision 1, after the files were removed but before state was saved (finding 6).
+    2. After the restart, the ensure recreated the unit; its restart failed because the blob was gone.
+    3. The re-run of discard-snap deleted the unit.
+    4. While discard-snap had the state unlocked around `RemoveSnapFiles` (`handlers.go:3644`), the ensure wrote the unit again.
+    5. discard-snap then dropped `st-b` from state, and the unit file, loaded and failed, stays forever.
+
 ## Workload fixes from run 6 triage
 - Host container: after a kill, incusd auto-started the instance before the rootfs bind mount was back, and the instance got stuck. Fixed: mount before incusd starts, `boot.autostart=false`, check existence by config, and retry the start.
 - Atomicity model: `clear-snap` and `discard-snap` have no undo by design, so an abort that lands after them keeps their effect. The check now expects exactly those effects; there is a new exploration assertion for this case.
