@@ -21,3 +21,5 @@ SNOUTY_UNSTABLE_FEATURES=teams snouty launch --launcher basic_test --config . \
   --param attrs.plugin_version=0.0.9 \
   --param attrs.workload=snapd-incus \
   --param attrs.snapd_commit="$(git rev-parse --short HEAD)"
+# Keep the build cache from filling the disk between launches.
+docker builder prune -f --filter until=1h >/dev/null 2>&1 || true
