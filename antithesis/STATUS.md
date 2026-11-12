@@ -40,6 +40,8 @@
     4. While discard-snap had the state unlocked around `RemoveSnapFiles` (`handlers.go:3644`), the ensure wrote the unit again.
     5. discard-snap then dropped `st-b` from state, and the unit file, loaded and failed, stays forever.
 
+11. *(Minor.)* **A refresh is reported as failed after it succeeded** (run 9, change 256). For a multi-snap refresh, snapd adds a final `check-rerefresh` task ("Monitoring snap … to determine whether extra refresh steps are required"), which contacts the store. If that request fails (here a store timeout), the change ends in Error although every snap was already refreshed, and stays refreshed. `snap refresh` then reports an error for a refresh that took effect.
+
 ## Workload fixes from run 6 triage
 - Host container: after a kill, incusd auto-started the instance before the rootfs bind mount was back, and the instance got stuck. Fixed: mount before incusd starts, `boot.autostart=false`, check existence by config, and retry the start.
 - Atomicity model: `clear-snap` and `discard-snap` have no undo by design, so an abort that lands after them keeps their effect. The check now expects exactly those effects; there is a new exploration assertion for this case.
