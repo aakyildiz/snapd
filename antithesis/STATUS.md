@@ -42,6 +42,8 @@
 
 11. *(Minor.)* **A refresh is reported as failed after it succeeded** (run 9, change 256). For a multi-snap refresh, snapd adds a final `check-rerefresh` task ("Monitoring snap … to determine whether extra refresh steps are required"), which contacts the store. If that request fails (here a store timeout), the change ends in Error although every snap was already refreshed, and stays refreshed. `snap refresh` then reports an error for a refresh that took effect.
 
+12. *(Test infrastructure, fixed here.)* **snapd's fake store crashes under concurrent requests** (run 9). `tests/lib/fakestore/store/store.go` fills `snapsCache` from concurrently running HTTP handlers without a lock: `fatal error: concurrent map writes` in `snapEssentialInfo`. Fixed in its own commit with a dedicated mutex; the package's tests pass.
+
 ## Workload fixes from run 6 triage
 - Host container: after a kill, incusd auto-started the instance before the rootfs bind mount was back, and the instance got stuck. Fixed: mount before incusd starts, `boot.autostart=false`, check existence by config, and retry the start.
 - Atomicity model: `clear-snap` and `discard-snap` have no undo by design, so an abort that lands after them keeps their effect. The check now expects exactly those effects; there is a new exploration assertion for this case.
