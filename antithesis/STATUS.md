@@ -10,7 +10,10 @@
 - 200 compute hours. Runs 1-5 failed in setup (about 1.5 CH total): Antithesis' seccomp profile (fixed with seccomp=unconfined), tar/fchmodat2 (fixed: rootfs bind-mounted), Antithesis runtime not visible in the nested container (fixed: recursive bind of /opt/antithesis).
 - Run 6 300a4922d4faac0952ca9b16d7683742-67-0 (12 CH, cancelled at 13 min): first run with the workload running. Triaged; see findings 3 and workload fixes below.
 - Run 7 109329e247610f368f67a2c132fd978e-67-0 (24 CH): **completed; workload checks pass.** Instrumentation, symbols, thread pausing and setup under 10 minutes all pass. The workload starts, every exploration assertion is reached, the end-of-test checks pass, and there are no unexpected container exits. Every failing property maps to findings 1-9.
-- Estimated spend: ~49 of 200 CH (runs 3-5 at ~4 CH each, run 6 at its 12 CH cap, run 7 at its 24 CH cap; Antithesis had only reported 0.3 CH so far).
+- Run 8 6cf51708363cafe2cefec6007e95109e-67-0 (24 CH): first run with the fake store. Findings 10 and 13 came from it. Harness and driver fixes: the store exits cleanly when stopped, and a refresh's channel snapshot is taken with its before-state.
+- Run 9 8630e99b0c4fb6fad92698fc19807c66-67-0 (24 CH): findings 11 and 12. Driver fix: refresh-all is judged per snap.
+- Run 10 7588905eab7da05e0212b40690632cda-67-0 (24 CH): no new findings. Its failures are known findings and the consequences of finding 7; the fake-store mutex fix held. Every run from 7 on passes instrumentation, symbols, setup under 10 minutes and the workload starting.
+- Estimated spend: ~121 of 200 CH (runs 7-10 counted at their 24 CH caps; Antithesis has reported only 0.3 CH so far, so this is conservative).
 
 ## Findings so far (both confirmed on Antithesis in run 6)
 1. **An aborted change reports `Done` when nothing was done.** If you abort a sideload install before its first undoable task runs, the change ends `Done` with no error, and the snap is not installed. Cause: abort sets pending tasks to `Hold`, and tasks with no undo handler (`prerequisites`) go back to `Done` (`overlord/state/taskrunner.go:447`). `Change.Status()` ranks `Done` above `Hold` (`overlord/state/change.go:288`).
