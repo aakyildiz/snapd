@@ -83,7 +83,9 @@ type Store struct {
 
 	channelRepository *ChannelRepository
 
-	snapsCache map[string]snapCachedInfo
+	// snapsCacheLock guards snapsCache, which concurrent requests fill.
+	snapsCacheLock sync.Mutex
+	snapsCache     map[string]snapCachedInfo
 
 	// endpoint -> quota value, note this is stateful, i.e. the quota is counted
 	// for all requests to a given endpoint and after exceeding it, all
@@ -267,7 +269,9 @@ func (s *Store) snapEssentialInfo(fn, snapID string, bs asserts.Backstore) (*ess
 	restoreSanitize := snap.MockSanitizePlugsSlots(func(snapInfo *snap.Info) {})
 	defer restoreSanitize()
 
+	s.snapsCacheLock.Lock()
 	cached, isCached := s.snapsCache[fn]
+	s.snapsCacheLock.Unlock()
 	if !isCached {
 		f, err := snapfile.Open(fn)
 		if err != nil {
@@ -277,7 +281,9 @@ func (s *Store) snapEssentialInfo(fn, snapID string, bs asserts.Backstore) (*ess
 		info, err := snap.ReadInfoFromSnapFile(f, nil)
 		cached.info = info
 		cached.err = err
+		s.snapsCacheLock.Lock()
 		s.snapsCache[fn] = cached
+		s.snapsCacheLock.Unlock()
 	}
 	if cached.err != nil {
 		return nil, fmt.Errorf("cannot get info for: %v: %v", fn, cached.err)
