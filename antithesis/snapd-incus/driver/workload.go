@@ -609,6 +609,17 @@ func (w *workload) judge(o *op, name string, chg *client.Change, before, after s
 			// Each snap is its own transaction: this one may have made it.
 			ok = ok || (after.Installed && after.Active && !before.hasRev(after.Current))
 		}
+		if o.kind == opRefreshAll && !ok {
+			// Refreshing several snaps is per snap: one that finished keeps
+			// its refresh even if another, or the final re-refresh check,
+			// failed.
+			rev, _ := strconv.Atoi(after.Current)
+			refreshed := after.Installed && after.Active && after.Tracking == before.Tracking &&
+				after.Held == before.Held && !before.Held &&
+				w.store.inChannel(name, strings.TrimPrefix(before.Tracking, "latest/"), rev)
+			assert.Sometimes(refreshed, "a failed refresh of several snaps still refreshes some of them", d)
+			ok = refreshed
+		}
 		if !ok && refusedRelink(chg, name) && !irreversible {
 			// Known finding: undoUnlinkSnap won't relink a snap if its data
 			// dirs are missing, taking that as "this change's clear-snap ran",
