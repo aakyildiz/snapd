@@ -897,8 +897,8 @@ func (w *workload) checkTarget(t *target, final bool) bool {
 		// A refresh trashes the previous data as <rev>.old; the change's
 		// cleanup removes it after the change is ready, so only count it once
 		// everything has settled.
-		if strings.HasSuffix(k, ".old") && !final {
-			continue
+		if strings.HasSuffix(k, ".old") {
+			continue // judged by the eventually, see trashCleaned
 		}
 		if !want[k] && !(strings.HasSuffix(k, ".old") && want[strings.TrimSuffix(k, ".old")] && !final) {
 			problems = append(problems, "leaked data dir /var/snap/"+strings.Replace(k, " ", "/", 1))
@@ -977,6 +977,29 @@ func (w *workload) eventually() {
 			return nil
 		})
 		assert.Always(ok, "snapd's state can be checked once faults stop", map[string]any{"host": t.host})
+	}
+	for _, t := range w.targets {
+		// A refresh's <rev>.old data copy is removed by the change's cleanup,
+		// which runs on a later Ensure, up to snapd's 5-minute interval.
+		var left []string
+		err := waitFor(7*time.Minute, func() error {
+			fs, err := t.readFS()
+			if err != nil {
+				return err
+			}
+			left = nil
+			for k := range fs.data {
+				if strings.HasSuffix(k, ".old") {
+					left = append(left, k)
+				}
+			}
+			if len(left) > 0 {
+				return fmt.Errorf("%d trashed data dirs left", len(left))
+			}
+			return nil
+		}, 10*time.Second)
+		assert.Always(err == nil, "a refresh's trashed copy of the old data is cleaned up", map[string]any{
+			"host": t.host, "left": left, "error": fmt.Sprint(err)})
 	}
 	log.Printf("eventually: ending the timeline")
 	os.Exit(0)
