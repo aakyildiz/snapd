@@ -2,6 +2,17 @@
 # The fake store gives up a graceful stop after 2s with a long download in
 # flight and exits 1; a stop the harness asked for is not a crash. Any exit
 # not caused by a stop request keeps its status.
+#
+# On :11030, the store without the finding 12 fixes, for its reproduction;
+# restarted whenever it crashes (the reproduction driver checks it is up).
+mkdir -p /srv/store/unfixed/asserts /srv/store/unfixed/channels
+(
+  while :; do
+    fakestore-unfixed run --dir /srv/store/unfixed --addr 0.0.0.0:11030 >>/var/log/fakestore-unfixed.log 2>&1
+    echo "fakestore-unfixed exited $?" >>/var/log/fakestore-unfixed.log
+    sleep 1
+  done
+) &
 fakestore run --dir /srv/store --addr 0.0.0.0:11028 &
 pid=$!
 trap 'kill -TERM $pid 2>/dev/null; wait $pid; exit 0' TERM INT

@@ -1,0 +1,77 @@
+diff --git a/tests/lib/fakestore/store/store.go b/tests/lib/fakestore/store/store.go
+index dc6e631..19b2061 100644
+--- a/tests/lib/fakestore/store/store.go
++++ b/tests/lib/fakestore/store/store.go
+@@ -83,9 +83,7 @@ type Store struct {
+ 
+ 	channelRepository *ChannelRepository
+ 
+-	// snapsCacheLock guards snapsCache, which concurrent requests fill.
+-	snapsCacheLock sync.Mutex
+-	snapsCache     map[string]snapCachedInfo
++	snapsCache map[string]snapCachedInfo
+ 
+ 	// endpoint -> quota value, note this is stateful, i.e. the quota is counted
+ 	// for all requests to a given endpoint and after exceeding it, all
+@@ -265,39 +263,11 @@ type essentialInfo struct {
+ 	Base        string
+ }
+ 
+-var (
+-	sanitizeLock    sync.Mutex
+-	sanitizeUsers   int
+-	sanitizeRestore func()
+-)
+-
+-// noSanitizePlugsSlots disables plug and slot sanitizing until the returned
+-// function is called. snap.SanitizePlugsSlots is a global and requests run
+-// concurrently: mocking and restoring it per request let one request restore
+-// the panicking default while another was still reading snap info.
+-func noSanitizePlugsSlots() (restore func()) {
+-	sanitizeLock.Lock()
+-	defer sanitizeLock.Unlock()
+-	if sanitizeUsers == 0 {
+-		sanitizeRestore = snap.MockSanitizePlugsSlots(func(snapInfo *snap.Info) {})
+-	}
+-	sanitizeUsers++
+-	return func() {
+-		sanitizeLock.Lock()
+-		defer sanitizeLock.Unlock()
+-		sanitizeUsers--
+-		if sanitizeUsers == 0 {
+-			sanitizeRestore()
+-		}
+-	}
+-}
+-
+ func (s *Store) snapEssentialInfo(fn, snapID string, bs asserts.Backstore) (*essentialInfo, error) {
+-	defer noSanitizePlugsSlots()()
++	restoreSanitize := snap.MockSanitizePlugsSlots(func(snapInfo *snap.Info) {})
++	defer restoreSanitize()
+ 
+-	s.snapsCacheLock.Lock()
+ 	cached, isCached := s.snapsCache[fn]
+-	s.snapsCacheLock.Unlock()
+ 	if !isCached {
+ 		f, err := snapfile.Open(fn)
+ 		if err != nil {
+@@ -307,9 +277,7 @@ func (s *Store) snapEssentialInfo(fn, snapID string, bs asserts.Backstore) (*ess
+ 		info, err := snap.ReadInfoFromSnapFile(f, nil)
+ 		cached.info = info
+ 		cached.err = err
+-		s.snapsCacheLock.Lock()
+ 		s.snapsCache[fn] = cached
+-		s.snapsCacheLock.Unlock()
+ 	}
+ 	if cached.err != nil {
+ 		return nil, fmt.Errorf("cannot get info for: %v: %v", fn, cached.err)
+@@ -832,7 +800,8 @@ func (s *Store) collectSnaps(bs asserts.Backstore) (map[string]*revisionSet, err
+ 		return nil, err
+ 	}
+ 
+-	defer noSanitizePlugsSlots()()
++	restoreSanitize := snap.MockSanitizePlugsSlots(func(snapInfo *snap.Info) {})
++	defer restoreSanitize()
+ 
+ 	snaps := make(map[string]*revisionSet)
+ 	snapNamesToID := make(map[string]string, len(snapFns))

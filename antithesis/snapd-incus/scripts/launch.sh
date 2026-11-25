@@ -15,7 +15,7 @@ SNOUTY_UNSTABLE_FEATURES=teams snouty launch --launcher basic_test --config . \
   --test-name snapd-incus \
   --description "$DESC" \
   --fault-tolerance high_availability \
-  --fault-exclusions '^driver$' \
+  --fault-exclusions '^(driver|snapd2)$' \
   --max-compute-hours "$HOURS" \
   --setup-timeout 20m \
   --param attrs.plugin_version=0.0.9 \

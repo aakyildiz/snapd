@@ -1,0 +1,10 @@
+#!/bin/sh
+# Antithesis reproduction of finding 3 (see driver/repro.go): while
+# /run/systemctl-fail exists, fail the systemctl calls whose arguments match
+# the extended regexp it holds, as systemctl does while systemd goes down.
+# Otherwise, and on every other system, a plain pass-through.
+if [ -s /run/systemctl-fail ] && printf '%s\n' "$*" | grep -qE -f /run/systemctl-fail; then
+  echo "systemctl $*: failed on purpose (antithesis reproduction)" >&2
+  exit 1
+fi
+exec /usr/bin/systemctl "$@"

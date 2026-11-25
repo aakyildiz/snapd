@@ -54,7 +54,13 @@ func main() {
 	for _, t := range targets {
 		t.adminSetup()
 	}
-	lifecycle.SetupComplete(map[string]any{"hosts": hosts})
+	// Reproductions of the findings, on their own host (see repro.go).
+	var rp *repro
+	if h := os.Getenv("REPRO_HOST"); h != "" {
+		rp = newRepro(h, newStoreModel(envOr("STORE_DIR", "/srv/store")))
+		rp.setup()
+	}
+	lifecycle.SetupComplete(map[string]any{"hosts": hosts, "repro": os.Getenv("REPRO_HOST")})
 	log.Printf("setup complete")
 
 	waitFile("/workload-active")
@@ -70,6 +76,9 @@ func main() {
 		}()
 	}
 	go w.reportLoop()
+	if rp != nil {
+		go rp.run()
+	}
 
 	hegel.Workload(func(tc hegel.TestCase) {
 		hegel.RunStateful(tc, w,

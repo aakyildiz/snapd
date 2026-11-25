@@ -14,10 +14,12 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN ./mkversion.sh "$(cat antithesis/snapd-incus/host/VERSION)"
-# snapd itself: coverage-instrumented and with its assertions cataloged.
+# snapd itself: coverage-instrumented and with its assertions cataloged. The
+# faultinject tag compiles in the fault points of the finding reproductions
+# (driver/repro.go); they do nothing unless SNAPD_FAULT_INJECT is set.
 # Symbols land in /symbols. cmd/snapd is a multi-call binary: run as "snapd"
 # it is the daemon, under any other name it is the snap CLI.
-RUN go build -tags withtestkeys -toolexec=antithesis-go-toolexec -o /out/snapd ./cmd/snapd \
+RUN go build -tags withtestkeys,faultinject -toolexec=antithesis-go-toolexec -o /out/snapd ./cmd/snapd \
  && cp /out/snapd /out/snap
 # Helpers snapd execs; built from the same tree so versions match.
 RUN go build -tags withtestkeys -o /out/snapctl ./cmd/snapctl \

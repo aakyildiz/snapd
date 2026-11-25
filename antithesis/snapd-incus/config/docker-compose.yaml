@@ -9,6 +9,16 @@ services:
     # Incus/LXC need pivot_root, which Antithesis' default seccomp profile
     # blocks even for privileged containers.
     security_opt: ["seccomp=unconfined"]
+  # Runs the finding reproductions (driver/repro.go); excluded from
+  # Antithesis faults so they stay exact.
+  snapd2:
+    container_name: snapd2
+    hostname: snapd2
+    platform: linux/amd64
+    image: snapd-incus-host:latest
+    privileged: true
+    cgroup: private
+    security_opt: ["seccomp=unconfined"]
   store:
     container_name: store
     hostname: store
@@ -22,9 +32,10 @@ services:
     image: snapd-incus-driver:latest
     environment:
       HOSTS: snapd1
+      REPRO_HOST: snapd2
       STORE_DIR: /srv/store
       STORE_URL: http://store:11028
     volumes: [storedata:/srv/store]
-    depends_on: [snapd1, store]
+    depends_on: [snapd1, snapd2, store]
 volumes:
   storedata:
