@@ -19,7 +19,7 @@
 1. **An aborted change reports `Done` when nothing was done.** If you abort a sideload install before its first undoable task runs, the change ends `Done` with no error, and the snap is not installed. Cause: abort sets pending tasks to `Hold`, and tasks with no undo handler (`prerequisites`) go back to `Done` (`overlord/state/taskrunner.go:447`). `Change.Status()` ranks `Done` above `Hold` (`overlord/state/change.go:288`).
 2. **Updating a disabled snap returns HTTP 500.** Sideloading a new revision of a disabled snap fails with `500 Internal Server Error` ("cannot update disabled snap"), for both single and multi-snap requests. This is a client error and should be a 4xx.
 3. **A failed snap mount leaks its snap file and mount unit file forever** (found on Antithesis, run 6). If `systemctl daemon-reload` fails while the mount task runs (here systemd was going down for a reboot), snapd tries to clean up. But `RemoveSnapFiles` (`overlord/snapstate/backend/setup.go:280`) returns as soon as `removeMountUnit` fails, so `/var/lib/snapd/snaps/<name>_<rev>.snap` is never deleted. `RemoveMountUnitFile` (`systemd/systemd.go`) likewise returns before `os.Remove(unit)`. The task ends in Error, and nothing retries the cleanup after the reboot. Example: the moment with input_hash 2749198260823943087 at vtime 28.18 leaked `tst-c_x1.snap` and `snap-tst\x2dc-x1.mount`.
-4. *(Possible, not yet confirmed by its own property.)* **An aborted remove can delete both the snap's data and its automatic snapshot.** `save-snapshot` is undone with forget after `clear-snap` has already removed the data.
+4. *(Confirmed by a unit test; not by an Antithesis property.)* **An aborted remove can delete both the snap's data and its automatic snapshot.** `save-snapshot` is undone with forget after `clear-snap` has already removed the data.
 
 5. **An undone remove can leave a snap disabled** (found on Antithesis, run 7, change 207 at input_hash 7336599675049985534, vtime 64.24). Before re-enabling a snap, `undoUnlinkSnap` (`overlord/snapstate/handlers.go:3450`) checks that `/var/snap/<snap>/<rev>` and `/var/snap/<snap>/common` exist, as a stand-in for "this change's `clear-snap` ran". Here an earlier aborted remove had already deleted `common` (its `clear-snap` has no undo). A later enable succeeded without recreating it. Then remove 207 was aborted before its own `clear-snap` ran (the task is on Hold), and its undo refused to re-enable the snap. The change reports Undone, but the snap ends up disabled, and a user has no way to tell. It is related to finding 4: data loss from an aborted remove is never repaired, and snapd's later decisions inherit it.
 
@@ -49,6 +49,40 @@
 
 13. **A crash inside `link-snap`, then an abort, leaves `/snap/<name>/current` for a snap that isn't installed** (run 8, change 278, around vtime 333-341). `doLinkSnap` (`overlord/snapstate/handlers.go`) runs `m.backend.LinkSnap` (line ~2045), which creates the `current` symlink, before it records its undo data (`t.Set("old-channel", ...)`, line ~2128) and the snap state. When snapd is killed in between, the task is saved as Doing with no undo data. If the change is then aborted, `undoLinkSnap` fails on its first `t.Get("old-channel")` (line ~2522) and never unlinks. The rest of the install is undone around the symlink. Undo handlers are meant to tolerate partial execution; this one doesn't.
    - Also from that triage: the blob-only leaks are finding 3 again. `RemoveMountUnitFile` deleted the unit file, then its daemon-reload failed during a container restart, so `RemoveSnapFiles` returned before removing the blob. The `.old` data dir after faults stopped was a driver artefact: snapd removes it on a later Ensure, up to 5 minutes after the change is ready, so the driver now waits for that in the end-of-test check.
+
+## Reproduction tests (deterministic, no Antithesis)
+Every snapd finding (1-11, 13) has a Go unit test that asserts the correct behaviour and fails on the current code, the same way on every run. They are behind the build tag `antithesisrepro`, so the normal suite stays green. Run with:
+
+```
+GODEBUG=rsa1024min=0 go test -count=1 -tags antithesisrepro <pkg> -check.f AntithesisFinding -check.v
+```
+(`GODEBUG` is needed with Go 1.27, whose RSA minimum rejects assertstest's 752-bit key.) A crash is modelled by setting the task to the state that would be persisted at the kill point, then re-running or aborting it.
+
+| Finding | Package | Tests |
+|---|---|---|
+| 1 | `overlord/state`, `overlord/snapstate` | `TestAntithesisFinding1AbortedChangeReportsDone`, `TestAntithesisFinding1AbortedSideloadReportsDone` |
+| 2 | `daemon` | `TestAntithesisFinding2SideloadDisabledSnapIs500`, `...SideloadManyDisabledSnapIs500` |
+| 3 | `overlord/snapstate/backend`, `systemd` | `TestAntithesisFinding3*` (5 failing, 1 passing control) |
+| 4 | `overlord/snapstate` | `TestAntithesisFinding4AbortedRemoveLosesDataAndSnapshot` |
+| 5 | `overlord/snapstate` | `TestAntithesisFinding5UndoneRemoveLeavesSnapDisabledIfCommonMissing` |
+| 6 | `overlord/snapstate` | `TestAntithesisFinding6DiscardSnapRemovesFilesBeforeSavingSequence`, `...AbortAfterCrashInDiscardSnapLeavesRevision` |
+| 7 | `overlord/snapstate` | `TestAntithesisFinding7DiscardSnapRerunForgetsActiveSnap` |
+| 8 | `overlord/snapstate` | `TestAntithesisFinding8MountSnapRerunAfterUploadRemoved` |
+| 9 | `osutil`, `snap/squashfs` | `TestAntithesisFinding9PreserveAll*`, `TestAntithesisFinding9InstallOverwritesExistingTargetInPlace` |
+| 10 | `overlord/snapstate` | `TestAntithesisFinding10EnsureRecreatesMountUnitOfSnapBeingRemoved`, `...MountUnitLeakedAfterRemove` |
+| 11 | `overlord/snapstate` | `TestAntithesisFinding11ReRefreshStoreErrorFailsSuccessfulRefresh` |
+| 13 | `overlord/snapstate` | `TestAntithesisFinding13UndoLinkSnapAfterCrashBeforeUndoData` |
+
+Corrections and context the tests added:
+- 1: the existing status-order test in `change_test.go` locks in "Done ranks above Hold"; a fix must update it.
+- 2: the error is a plain `fmt.Errorf` (`overlord/snapstate/snap.go:834`) that `errToResponse` (`daemon/errors.go`) maps to InternalError.
+- 3: `RemoveMountUnitFile` runs daemon-reload *after* deleting the unit, so a daemon-reload failure alone leaks only the blob. The unit file leaks when `disable` (or `stop`, if mounted) fails; run 6's leak of both fits every systemctl call failing. snapd deliberately keeps the blob on some cleanup errors so a retry can clean up, so the fix may be "retry" rather than "remove anyway".
+- 4: confirmed. save-snapshot's undo is `doForget` (`snapshotmgr.go:76`), which deletes the snapshot file; clear-snap has no undo.
+- 7: upstream's `TestDoDiscardSnapInQuotaGroup` discards a revision not in the sequence and asserts the snap is dropped, so current tests encode this behaviour.
+- 9: only when the existing target has one link; GNU `cp -a` replaces a multiply-linked destination with a new inode. A leaked blob has one link once its upload is gone.
+- 10: `ensureMountsUpdatedAfterSeed` only handles each snap's *current* revision, so it affects removing the last revision (the run 8 case), not removing an older one.
+- 11: upstream intends the task error (`TestDoCheckReRefreshFailsIfUpdateFails`); the debatable part is the whole change reporting Error after every snap refreshed.
+- 13: needs the abort to arrive before the restarted runner re-runs the Doing task; a re-run would normally complete.
 
 ## Workload fixes from run 6 triage
 - Host container: after a kill, incusd auto-started the instance before the rootfs bind mount was back, and the instance got stuck. Fixed: mount before incusd starts, `boot.autostart=false`, check existence by config, and retry the start.
