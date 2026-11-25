@@ -265,9 +265,35 @@ type essentialInfo struct {
 	Base        string
 }
 
+var (
+	sanitizeLock    sync.Mutex
+	sanitizeUsers   int
+	sanitizeRestore func()
+)
+
+// noSanitizePlugsSlots disables plug and slot sanitizing until the returned
+// function is called. snap.SanitizePlugsSlots is a global and requests run
+// concurrently: mocking and restoring it per request let one request restore
+// the panicking default while another was still reading snap info.
+func noSanitizePlugsSlots() (restore func()) {
+	sanitizeLock.Lock()
+	defer sanitizeLock.Unlock()
+	if sanitizeUsers == 0 {
+		sanitizeRestore = snap.MockSanitizePlugsSlots(func(snapInfo *snap.Info) {})
+	}
+	sanitizeUsers++
+	return func() {
+		sanitizeLock.Lock()
+		defer sanitizeLock.Unlock()
+		sanitizeUsers--
+		if sanitizeUsers == 0 {
+			sanitizeRestore()
+		}
+	}
+}
+
 func (s *Store) snapEssentialInfo(fn, snapID string, bs asserts.Backstore) (*essentialInfo, error) {
-	restoreSanitize := snap.MockSanitizePlugsSlots(func(snapInfo *snap.Info) {})
-	defer restoreSanitize()
+	defer noSanitizePlugsSlots()()
 
 	s.snapsCacheLock.Lock()
 	cached, isCached := s.snapsCache[fn]
@@ -806,8 +832,7 @@ func (s *Store) collectSnaps(bs asserts.Backstore) (map[string]*revisionSet, err
 		return nil, err
 	}
 
-	restoreSanitize := snap.MockSanitizePlugsSlots(func(snapInfo *snap.Info) {})
-	defer restoreSanitize()
+	defer noSanitizePlugsSlots()()
 
 	snaps := make(map[string]*revisionSet)
 	snapNamesToID := make(map[string]string, len(snapFns))
