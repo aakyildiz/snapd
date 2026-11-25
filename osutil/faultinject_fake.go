@@ -25,3 +25,9 @@ package osutil
 func MaybeInjectFault(tag string) {
 	// intentionally empty
 }
+
+// MaybeInjectRetry is an empty implementation for builds with fault injection
+// disabled.
+func MaybeInjectRetry(tag string) bool {
+	return false
+}

@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 var (
@@ -36,6 +37,47 @@ var (
 		}
 	}
 )
+
+// faultPause is how long a "pause" fault holds the calling code.
+var faultPause = 8 * time.Second
+
+func crashedOnFault() bool {
+	m, _ := filepath.Glob(filepath.Join(injectSysroot, "/var/lib/snapd/faults", "*:panic"))
+	return len(m) > 0
+}
+
+func faultEnabled(tagKind string) bool {
+	if !GetenvBool("SNAPPY_TESTING") {
+		return false
+	}
+	for _, f := range strings.Split(os.Getenv("SNAPD_FAULT_INJECT"), ",") {
+		if f == tagKind {
+			return true
+		}
+	}
+	return false
+}
+
+// MaybeInjectRetry returns true, once, when SNAPD_FAULT_INJECT has
+// "<tag>:retry-after-crash" and snapd already crashed on a panic fault. A
+// task handler that then returns a state.Retry stays Doing without running,
+// as a task that was in flight when snapd was killed does after a restart
+// until the task runner gets to it (Antithesis reproductions).
+func MaybeInjectRetry(tag string) bool {
+	tagKind := tag + ":retry-after-crash"
+	if !faultEnabled(tagKind) || !crashedOnFault() {
+		return false
+	}
+	stamp := filepath.Join(injectSysroot, "/var/lib/snapd/faults", tagKind)
+	if FileExists(stamp) {
+		return false
+	}
+	if err := AtomicWriteFile(stamp, nil, 0644, 0); err != nil {
+		return false
+	}
+	fmt.Fprintf(stderr, "injecting retry for tag %q\n", tag)
+	return true
+}
 
 func injectFault(tagKind string) (injected bool) {
 	s := strings.Split(tagKind, ":")
@@ -65,6 +107,25 @@ func injectFault(tagKind string) (injected bool) {
 	fmt.Fprintf(stderr, "injecting %q fault for tag %q\n", kind, tag)
 
 	switch kind {
+	case "pause":
+		// Antithesis reproductions: hold the calling handler for a while,
+		// so the driver can act (abort, block the store) at this point.
+		if !makeStamp() {
+			return false
+		}
+		time.Sleep(faultPause)
+		return true
+	case "pause-after-crash":
+		// Like pause, but only once snapd has crashed on a panic fault:
+		// the handler is running again after a restart.
+		if !crashedOnFault() {
+			return false
+		}
+		if !makeStamp() {
+			return false
+		}
+		time.Sleep(faultPause)
+		return true
 	case "panic":
 		if !makeStamp() {
 			return false

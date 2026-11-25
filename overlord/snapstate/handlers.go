@@ -948,6 +948,9 @@ func (m *SnapManager) doMountSnap(t *state.Task, _ *tomb.Tomb) error {
 		if err := os.Remove(snapsup.SnapPath); err != nil {
 			logger.Noticef("Failed to cleanup %s: %s", snapsup.SnapPath, err)
 		}
+		// Antithesis reproduction (finding 8): crash after the upload is
+		// gone but before the task is Done.
+		osutil.MaybeInjectFault("mount-snap-upload-removed")
 	}
 
 	st.Lock()
@@ -1857,6 +1860,11 @@ func isSingleRebootBoundary(linkSnap *state.Task) bool {
 }
 
 func (m *SnapManager) doLinkSnap(t *state.Task, _ *tomb.Tomb) (retErr error) {
+	// Antithesis reproduction (finding 13): after a crash, the re-run waits
+	// so an abort can land first.
+	if osutil.MaybeInjectRetry("link-snap-start") {
+		return &state.Retry{After: 20 * time.Second}
+	}
 	st := t.State()
 	st.Lock()
 	defer st.Unlock()
@@ -2043,6 +2051,11 @@ func (m *SnapManager) doLinkSnap(t *state.Task, _ *tomb.Tomb) (retErr error) {
 	// links the new revision to current and ensures a shared base prefix
 	// directory for parallel installed snaps
 	err = m.backend.LinkSnap(newInfo, deviceCtx, linkCtx, perfTimings)
+	if err == nil {
+		// Antithesis reproduction (finding 13): crash after the current
+		// symlink exists but before the undo data is saved.
+		osutil.MaybeInjectFault("link-snap-linked")
+	}
 	// defer a cleanup helper which will unlink the snap if anything fails after
 	// this point
 	defer func() {
@@ -3362,6 +3375,8 @@ func (m *SnapManager) doUnlinkSnap(t *state.Task, _ *tomb.Tomb) (retErr error) {
 	// in case of the snapd snap, we only reach here if disabling or removal
 	// was deemed ok by earlier checks
 
+	// Antithesis reproduction (finding 5): abort lands after unlink-snap.
+	defer osutil.MaybeInjectFault("unlink-snap-done")
 	st := t.State()
 	st.Lock()
 	defer st.Unlock()
@@ -3499,6 +3514,8 @@ func (m *SnapManager) undoUnlinkSnap(t *state.Task, _ *tomb.Tomb) error {
 }
 
 func (m *SnapManager) doClearSnapData(t *state.Task, _ *tomb.Tomb) error {
+	// Antithesis reproduction (finding 4): abort lands after clear-snap.
+	defer osutil.MaybeInjectFault("clear-snap-done")
 	st := t.State()
 	st.Lock()
 	snapsup, snapst, err := snapSetupAndState(t)
@@ -3596,6 +3613,13 @@ func (m *SnapManager) doClearSnapData(t *state.Task, _ *tomb.Tomb) error {
 }
 
 func (m *SnapManager) doDiscardSnap(t *state.Task, _ *tomb.Tomb) error {
+	// Antithesis reproductions: after a crash, the re-run waits so an abort
+	// can land first (finding 6); a crash after the task's work is saved but
+	// before it is Done (finding 7).
+	if osutil.MaybeInjectRetry("discard-snap-start") {
+		return &state.Retry{After: 20 * time.Second}
+	}
+	defer osutil.MaybeInjectFault("discard-snap-done")
 	st := t.State()
 	st.Lock()
 	defer st.Unlock()
@@ -3643,6 +3667,13 @@ func (m *SnapManager) doDiscardSnap(t *state.Task, _ *tomb.Tomb) error {
 
 	st.Unlock()
 	err = m.backend.RemoveSnapFiles(snapsup.placeInfo(), typ, nil, deviceCtx, pb)
+	if err == nil {
+		// Antithesis reproductions: the re-run holds the state unlocked
+		// after removing the files (finding 10); a crash after the files
+		// are gone but before the shorter sequence is saved (findings 6, 10).
+		osutil.MaybeInjectFault("discard-snap-unlocked")
+		osutil.MaybeInjectFault("discard-snap-files-removed")
+	}
 	st.Lock()
 	if err != nil {
 		t.Errorf("cannot remove snap file %q, will retry in 3 mins: %s", snapsup.InstanceName(), err)
@@ -4645,6 +4676,9 @@ func (m *SnapManager) doCheckReRefresh(t *state.Task, tomb *tomb.Tomb) error {
 		}
 	}
 
+	// Antithesis reproduction (finding 11): every snap is refreshed; the
+	// store goes away before the re-refresh check asks it.
+	osutil.MaybeInjectFault("check-rerefresh-store")
 	updated, updateTss, err := reRefreshUpdateMany(tomb.Context(nil), st, snaps, nil, re.UserID, reRefreshFilter, re.Flags, chg.ID())
 	if err != nil {
 		return err
